@@ -1,0 +1,262 @@
+<!DOCTYPE html><html data-bs-theme="light" lang="en"><head><meta charset="utf-8">
+<!-- ================================================================
+   LN Consultant — Full Integration Script (FINAL)
+   Ganti SELURUH isi textarea "Head Content > Before Content" yang
+   lama dengan file ini (jangan digabung/ditambahkan ke yang lama,
+   supaya tidak ada deklarasi variabel dobel).
+
+   Meng-cover 3 hal:
+   1. Form #consultForm  -> simpan ke ln_leads -> buka WA lengkap
+   2. #wa-float-btn      -> log IP/lokasi ke ln_visits (WA tetap kebuka normal)
+   3. .service-card      -> log ke ln_visits + ln_leads -> buka WA sesuai servis
+
+   TES DULU DI LOCALHOST sebelum export/upload ke lnconsultant.com
+   ================================================================ -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+  /* ========================= CONFIG ========================= */
+  var WA_NUMBER = "6285121502858";
+  var SB_URL    = "https://pjrahsdhmannqwwxytnc.supabase.co";
+  var SB_KEY    = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBqcmFoc2RobWFubnF3d3h5dG5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0OTQzNDYsImV4cCI6MjA5OTA3MDM0Nn0.nxltXRlqmuU1opIoglm_Q9hR6dIYJPPSIoxZ_mIoseI";
+  /* ============================================================ */
+
+  var lnSb = null;
+  try { lnSb = supabase.createClient(SB_URL, SB_KEY); } catch (e) {}
+
+  function lnWa(prefill) {
+    return "https://wa.me/" + WA_NUMBER + "?text=" + encodeURIComponent(prefill);
+  }
+
+  function lnSessionId() {
+    var k = "ln_sid";
+    var v = localStorage.getItem(k);
+    if (!v) { v = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random(); localStorage.setItem(k, v); }
+    return v;
+  }
+
+  var params = new URLSearchParams(location.search);
+  var LN_SOURCE = {
+    utm: params.get("utm_source") || null,
+    campaign: params.get("utm_campaign") || null,
+    referrer: document.referrer ? (function () { try { return new URL(document.referrer).hostname; } catch (e) { return "unknown"; } })() : "direct"
+  };
+
+  // Simpan IP + lokasi + konteks kunjungan (dipakai WA-float & service card)
+  function lnLogVisit(serviceClicked) {
+    if (!lnSb) return;
+    fetch("https://ipapi.co/json/").then(function (r) { return r.json(); }).then(function (geo) {
+      lnSb.from("ln_visits").insert({
+        ip: geo.ip || null, city: geo.city || null, country: geo.country_name || null,
+        service_clicked: serviceClicked, user_agent: navigator.userAgent, referrer: document.referrer,
+        marketing: LN_SOURCE, session_id: lnSessionId()
+      }).then(function () {}).catch(function () {});
+    }).catch(function () {});
+  }
+
+  // Simpan lead dengan data kontak asli (nama/WA/email) ke ln_leads
+  function lnLead(source, extra) {
+    if (!lnSb) return;
+    try {
+      lnSb.from("ln_leads").insert(Object.assign({
+        source: source, marketing: LN_SOURCE,
+        next_followup_at: new Date(Date.now() + 24 * 3600e3).toISOString()
+      }, extra || {})).then(function () {}).catch(function () {});
+    } catch (e) {}
+  }
+
+  /* ===================== 1. FORM KONSULTASI ===================== */
+  var form = document.getElementById("consultForm");
+  if (form) {
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+
+      var nameEl = document.getElementById("fullName");
+      var waEl = document.getElementById("waNumber");
+      var serviceEl = document.getElementById("serviceSelect");
+      var notesEl = document.getElementById("extraNotes");
+      var companyEl = form.querySelector('input[name="companyType"]:checked');
+
+      var name = nameEl ? nameEl.value.trim() : "";
+      var waOrEmail = waEl ? waEl.value.trim() : "";
+      var service = serviceEl ? serviceEl.value : "";
+      var notes = notesEl ? notesEl.value.trim() : "";
+      var companyType = companyEl ? companyEl.value : "";
+
+      if (!name || !waOrEmail) {
+        alert("Please fill in your name and WhatsApp number / email.");
+        return;
+      }
+
+      // simpan ke Supabase (fire-and-forget, tidak menahan proses buka WA)
+      lnLead("website_form", {
+        name: name,
+        whatsapp: waOrEmail,
+        service: service || companyType,
+        quiz_answers: { companyType: companyType, service: service },
+        notes: notes || null
+      });
+
+      // susun teks WA lengkap sesuai isian form
+      var lines = [
+        "Hi, my name is " + name + ".",
+        "Company type: " + companyType
+      ];
+      if (service) lines.push("Service needed: " + service);
+      if (notes) lines.push("Notes: " + notes);
+      lines.push("My WhatsApp/email: " + waOrEmail);
+
+      window.open(lnWa(lines.join("\n")), "_blank");
+
+      // opsional: kasih feedback visual & reset form
+      form.reset();
+      var checkedRadio = form.querySelector('input[name="companyType"][value="PT PMA (Foreign-owned)"]');
+      if (checkedRadio) checkedRadio.checked = true;
+    });
+  }
+
+  /* ===================== 2. FLOATING WA BUTTON ===================== */
+  var waFloat = document.getElementById("wa-float-btn");
+  if (waFloat) {
+    // TIDAK preventDefault -> WA tetap kebuka normal seperti biasa (href asli jalan)
+    waFloat.addEventListener("click", function () {
+      lnLogVisit("wa_float_button");
+    });
+  }
+
+  /* ===================== 3. SERVICE CARDS ===================== */
+  document.querySelectorAll(".service-card").forEach(function (card) {
+    var link = card.querySelector(".service-link"), tag = card.querySelector(".service-tag");
+    if (!link || !tag) return;
+    link.addEventListener("click", function (e) {
+      e.preventDefault();
+      var svc = tag.textContent.trim();
+      lnLogVisit(svc);
+      lnLead("service_card", { service: svc });
+      window.open(lnWa("Hi, I'd like a quote for: " + svc), "_blank");
+    });
+  });
+
+});
+</script><meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"><title>Investor Visa, PT PMA Setup, Tax Compliance, KITAS &amp; Business Licensing | LN Consultant</title><link rel="canonical" href="https://www.lnconsultant.com/blog.html"><meta property="og:url" content="https://www.lnconsultant.com/blog.html"><meta name="twitter:title" content="PT PMA Setup, KITAS &amp; Business Licensing | LN Consultant"><meta property="og:description" content="LN Consultant is the consulting division of PT Langit Naga Sejahtera, dedicated to supporting foreign investors, entrepreneurs, and companies doing business in Indonesia.
+
+Starting a business in a new country involves more than completing paperwork. It requires a clear understanding of local regulations, the right business structure, ongoing compliance, and reliable guidance throughout the process. Our role is to help clients make informed decisions and manage these requirements with confidence."><meta property="og:type" content="website"><meta name="twitter:card" content="summary"><meta name="twitter:image" content="https://www.lnconsultant.com/assets/img/logo/logo_ln_new.png"><meta name="twitter:description" content="LN Consultant is the consulting division of PT Langit Naga Sejahtera, dedicated to supporting foreign investors, entrepreneurs, and companies doing business in Indonesia.
+
+Starting a business in a new country involves more than completing paperwork. It requires a clear understanding of local regulations, the right business structure, ongoing compliance, and reliable guidance throughout the process. Our role is to help clients make informed decisions and manage these requirements with confidence."><meta property="og:title" content="Langit Naga Highthes Professional Team Consultant"><meta name="description" content="Setting up a PT PMA, KITAS, or business license in Indonesia? LN Consultant handles the paperwork end-to-end. Get a free quote — no fees, no obligation.
+
+LN Consultant is the consulting division of PT Langit Naga Sejahtera, dedicated to supporting foreign investors, entrepreneurs, and companies doing business in Indonesia.
+
+Starting a business in a new country involves more than completing paperwork. It requires a clear understanding of local regulations, the right business structure, ongoing compliance, and reliable guidance throughout the process. Our role is to help clients make informed decisions and manage these requirements with confidence."><meta property="og:image" content="https://www.lnconsultant.com/assets/img/logo/logo_ln_new.png"><link rel="apple-touch-icon" type="image/webp" sizes="180x180" href="assets/img/favicon/apple-touch-icon.webp?h=5e94fb299b173d64678295d36a4b7578"><link rel="icon" type="image/webp" sizes="16x16" href="assets/img/favicon/favicon-16x16.webp?h=5bcf5acfaff79889cce0359fa3314b28"><link rel="icon" type="image/webp" sizes="16x16" href="assets/img/favicon/favicon-16x16.webp?h=5bcf5acfaff79889cce0359fa3314b28" media="(prefers-color-scheme: dark)"><link rel="icon" type="image/webp" sizes="32x32" href="assets/img/favicon/favicon-32x32.webp?h=d938b3d5c1d9b4443ba4ca83117efbe2"><link rel="icon" type="image/webp" sizes="32x32" href="assets/img/favicon/favicon-32x32.webp?h=d938b3d5c1d9b4443ba4ca83117efbe2" media="(prefers-color-scheme: dark)"><link rel="icon" type="image/webp" sizes="180x180" href="assets/img/favicon/apple-touch-icon.webp?h=5e94fb299b173d64678295d36a4b7578"><link rel="icon" type="image/png" sizes="1254x1254" href="assets/img/logo/logo_ln_new.png?h=e0136c0f69d6218d4b527ef94a15b594"><link rel="icon" type="image/png" sizes="1254x1254" href="assets/img/logo/logo_ln_new.png?h=e0136c0f69d6218d4b527ef94a15b594"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"><link rel="manifest" href="manifest.json?h=b8d18d45cb0c7d424298214b529c8dd2" crossorigin="use-credentials"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css"><link rel="stylesheet" href="assets/css/styles.min.css?h=56823cdd74a780f6919043941b76592c"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.css"><!-- 1. SEO MULTI-LANGUAGE MAPPING (Google Bot) -->
+<link rel="alternate" hreflang="x-default" href="https://lnconsultant.com/" />
+<link rel="alternate" hreflang="en" href="https://lnconsultant.com/" />
+<link rel="alternate" hreflang="id" href="https://lnconsultant.com/?lang=id" />
+<link rel="alternate" hreflang="ru" href="https://lnconsultant.com/?lang=ru" />
+<link rel="alternate" hreflang="zh" href="https://lnconsultant.com/?lang=zh" />
+
+<!-- 2. PRIMARY META TAGS -->
+<title>LN Consultant — Business Advisory & Legal Services</title>
+<meta name="title" content="LN Consultant — Business Advisory & Legal Services" />
+<meta name="description" content="Top-tier corporate & immigration advisory in Indonesia. PT PMA setup, Investor KITAS (E28A), Golden Visa, Spouse Visa (E31A), and Overstay Mitigation." />
+<meta name="facebook-domain-verification" content="q6ru5m9y7xsyfz6ebryj9bza7l7psy" />
+
+<!-- 3. OPEN GRAPH / WHATSAPP / SOCIAL MEDIA PREVIEW (CDN PNG TRANSPARENT) -->
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://lnconsultant.com/" />
+<meta property="og:title" content="LN Consultant — Business Advisory & Legal Services" />
+<meta property="og:description" content="Top-tier corporate & immigration advisory in Indonesia. PT PMA setup, Investor KITAS, Golden Visa, and Overstay Mitigation." />
+<meta property="og:image" content="https://i.postimg.cc/vHWc2d9h/Logo-LN.png" />
+<meta property="og:image:secure_url" content="https://i.postimg.cc/vHWc2d9h/Logo-LN.png" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="500" />
+<meta property="og:image:height" content="500" />
+
+<!-- 4. TWITTER CARDS PREVIEW -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:url" content="https://lnconsultant.com/" />
+<meta name="twitter:title" content="LN Consultant — Business Advisory & Legal Services" />
+<meta name="twitter:description" content="Top-tier corporate & immigration advisory in Indonesia. PT PMA setup, Investor KITAS, Golden Visa, and Overstay Mitigation." />
+<meta name="twitter:image" content="https://i.postimg.cc/vHWc2d9h/Logo-LN.png" />
+</head><body><div class="sat-nav-pro-scope"><nav class="navbar navbar-expand-lg fixed-top sat-pro-navbar" id="proNavbar"><div class="container-fluid"><a class="navbar-brand d-flex align-items-center gap-3 sat-pro-brand" href="index.html"><div class="sat-brand-logo-area"><span class="sat-pro-main"><span class="sat-pro-accent"><img class="rounded" src="assets/img/logo/Logo%20Company.jpeg?h=d477fc80855a456fbe6002bf3e371d6d" width="52" height="48"></span></span></div><div class="d-none d-lg-block sat-pro-divider"></div><div class="d-none d-lg-block sat-pro-desc"><span class="text-uppercase d-block sat-pro-sub-2" style="font-family: 'Abyssinica SIL', serif;"><span style="color: rgb(78, 78, 78);">PT. Langit Naga Sejahtera</span></span><span class="d-block sat-pro-sub-1" style="font-size: 11px;"><span style="color: rgb(78, 78, 78);">Business Advisory</span></span></div></a><button class="navbar-toggler text-white border-0 shadow-none sat-pro-toggler" data-bs-toggle="collapse" data-bs-target="#proNavbarContent" type="button" aria-controls="proNavbarContent" aria-expanded="false" aria-label="Toggle navigation"><svg class="bi bi-list fs-2" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16">
+  <path fill-rule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5m0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5m0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5"></path>
+</svg></button><div class="collapse navbar-collapse justify-content-end" id="proNavbarContent"><ul class="navbar-nav ms-auto mb-3 mb-lg-0 sat-pro-nav-list"><li class="nav-item"><a class="nav-link sat-pro-link" href="index.html"><span style="color: rgb(78, 78, 78);">Home</span></a></li><li class="nav-item"><a class="nav-link sat-pro-link" href="about.html"><span style="color: rgb(78, 78, 78);">About</span></a></li><li class="nav-item"><a class="nav-link sat-pro-link" href="services.html"><span style="color: rgb(78, 78, 78);">Services</span></a></li><li class="nav-item"><a class="nav-link sat-pro-link" href="solutions.html"><span style="color: rgb(78, 78, 78);">Solutions</span></a></li><li class="nav-item"><a class="nav-link sat-pro-link" href="tools.html"><span style="color: rgb(78, 78, 78);">Tools</span></a></li><li class="nav-item"><a class="nav-link active sat-pro-link" href="blog.html"><span style="color: rgb(78, 78, 78);">Blog &amp; Article</span></a></li></ul><div class="d-flex align-items-center gap-3 sat-pro-right"><a class="btn sat-pro-contact-btn" role="button" href="https://wa.me/6281234567890" target="_blank">Contact Us</a></div></div></div></nav></div><section class="pt-10 pb-8 ln-blog-hero-exact" style="background: linear-gradient(146deg, #fffaec 5%, rgba(255,255,255,0.27)), url(&quot;assets/img/article/meeting.png?h=ccca55d54440058110b7ff3dc4a3bf20&quot;) top right / cover;"><div class="container"><div class="row align-items-center mt-2 pt-3 mb-2 pb-3"><div class="col-md-12 col-lg-7 col-xl-7 ms-0 ps-4 pe-4 mb-4 mb-lg-0" data-aos="fade-up" data-aos-duration="350" data-aos-delay="450"><span class="ln-hero-label" style="background: #f8c35d;border-radius: 11px;text-align: center;width: 135px;"><em><span style="color: rgb(17, 17, 17); background-color: rgba(255, 255, 255, 0);">Blog &amp; Article</span></em></span><h1 class="mb-2 ln-hero-main-title" style="font-size: 30px;"><strong><span style="color: rgb(36, 36, 36); background-color: rgba(255, 255, 255, 0);">The Journal: Legal Guides, Corporate Advisory, and Industry News</span></strong></h1><p><span style="color: rgb(36, 36, 36);">Subscribe to learn about new product features, the latest in business advisory, solutions, and updates.</span></p></div></div></div></section><div><section class="py-5 ln-blog-main-section"><div class="container"><div class="row g-4"><div class="col-lg-8"><div class="row g-3 g-md-4" id="mainBlogGrid"><div class="col-6 ln-article-item"><article class="ln-blog-card-page"><a class="ln-card-img-wrap" href="https://lnconnection.substack.com/p/use-the-overstay-calculator-to-avoid?r=91g9og" target="_blank" rel="noopener"><img src="assets/img/article/Tools%20&%20Calculator.png?h=004c49cdf87340de9efbac7ab03168e0" alt="Overstay Calculator" loading="lazy"></a><div class="ln-card-meta"><span class="ln-author">LN Consultant Team</span></div><h3 class="ln-card-title"><a href="https://lnconnection.substack.com/p/use-the-overstay-calculator-to-avoid?r=91g9og" target="_blank" rel="noopener">Use the Overstay Calculator to Avoid Exceeding Penalty Limits</a><span class="ln-arrow">↗</span></h3><p class="ln-card-excerpt">Understanding Indonesian immigration regulations is crucial for foreign nationals (expatriates, tourists) and business owners employing foreign talent.</p></article></div><div class="col-6 ln-article-item"><article class="ln-blog-card-page"><a class="ln-card-img-wrap" href="https://lnconnection.substack.com/p/setting-up-pt-pma-navigating-the?r=91g9og&amp;utm_campaign=post&amp;utm_medium=web&amp;showWelcomeOnShare=true" target="_blank" rel="noopener"><img src="assets/img/article/article-2.webp?h=3d28c13444dbc4a19b8c5b192a311fbf" alt="PT PMA Setup" loading="lazy"></a><div class="ln-card-meta"><span class="ln-author">LN Consultant Team</span></div><h3 class="ln-card-title"><a href="https://lnconnection.substack.com/p/setting-up-pt-pma-navigating-the?r=91g9og&utm_campaign=post&utm_medium=web&showWelcomeOnShare=true" target="_blank" rel="noopener">Setting Up PT PMA: Navigating the 10B Capital Rule </a><span class="ln-arrow">↗</span></h3><p class="ln-card-excerpt">Step-by-step strategies for foreign investors opening a villa or hospitality business in Bali smoothly.</p></article></div><div class="col-6 ln-article-item"><article class="ln-blog-card-page"><a class="ln-card-img-wrap" href="https://lnconnection.substack.com/p/investor-vs-working-kitas-which-saves?r=91g9og&amp;utm_campaign=post&amp;utm_medium=web&amp;showWelcomeOnShare=true" target="_blank" rel="noopener"><img src="assets/img/article/article-5.webp?h=01da56c45165afd7a0de8c8bc21c6909" alt="Investor KITAS" loading="lazy"></a><div class="ln-card-meta"><span class="ln-author">LN Consultant Team</span></div><h3 class="ln-card-title"><a href="https://lnconnection.substack.com/p/investor-vs-working-kitas-which-saves?r=91g9og&utm_campaign=post&utm_medium=web&showWelcomeOnShare=true" target="_blank" rel="noopener">Investor vs. Working KITAS: Which Saves You Money? </a><span class="ln-arrow">↗</span></h3><p class="ln-card-excerpt">Understand how choosing the right stay permit can cut annual operational costs for your business.</p></article></div><div class="col-6 ln-article-item"><article class="ln-blog-card-page"><a class="ln-card-img-wrap" href="https://lnconnection.substack.com/p/why-is-the-cost-of-creating-a-pt-in?r=91g9og&utm_campaign=post&utm_medium=web&showWelcomeOnShare=true" target="_blank" rel="noopener"><img alt="PT PMA Tax Guide" loading="lazy" src="assets/img/article/article-7.webp?h=98909776bb4073d9a01845d4d710e5c6"></a><div class="ln-card-meta"><span class="ln-author">LN Consultant Team</span></div><h3 class="ln-card-title"><a href="https://lnconnection.substack.com/p/why-is-the-cost-of-creating-a-pt-in?r=91g9og&utm_campaign=post&utm_medium=web&showWelcomeOnShare=true" target="_blank" rel="noopener">Why Is the Cost of Creating a PT in Indonesia Increasing in 2026?</a><span class="ln-arrow">↗</span></h3><p class="ln-card-excerpt">Indonesia is opening its doors wider than ever to foreign investors, but if you have been tracking the</p></article></div></div></div><div class="col-lg-4"><aside class="ln-sidebar-wrap"><div class="text-center ln-widget-box"><div class="mb-3 ln-profile-avatar"><img src="assets/img/logo/Logo_LN.png?h=c21d184e7df90df00f4a2fe60accebf3" alt="LN Logo"></div><h4 class="ln-profile-title">Article &amp; Blog</h4><span class="ln-profile-subtitle">Powered by PT. Langit Naga Sejahtera</span><p class="mt-2 ln-profile-desc"> Your trusted partner for PT PMA incorporation, investor visas, tax compliance, and legal licensing in Indonesia. </p></div><div class="ln-widget-box"><h5 class="ln-widget-title">Hot News &amp; Trending</h5><div class="ln-hot-news-list"><div class="ln-hot-news-item"><img class="ln-hot-img" src="assets/img/article/Tools%20&%20Calculator.png?h=004c49cdf87340de9efbac7ab03168e0" alt="Hot 1"><div><h6 class="ln-hot-title">Use the Overstay Calculator to Avoid Exceeding Penalty Limits</h6><span class="ln-hot-date">Oct 08, 2026</span></div></div><div class="ln-hot-news-item"><img class="ln-hot-img" src="assets/img/article/article-11.webp?h=c2e9054a0f40ad32452edc252bd1ebed" alt="Hot 2"><div><h6 class="ln-hot-title"><a href="https://lnconnection.substack.com/p/use-the-overstay-calculator-to-avoid?r=91g9og" target="_blank" rel="noopener">Opening a Café in Bali in 2026? Check This Before You Invest.</a></h6><span class="ln-hot-date">Oct 02, 2026</span></div></div><div class="ln-hot-news-item"><img class="ln-hot-img" src="assets/img/background/images%20(2).jpg?h=80bd1080a64497003931470290000bcc" alt="Hot 3"><div><h6 class="ln-hot-title"><strong><span style="color: rgb(54, 55, 55);">Property Consultancy in Batam: Which Business Classification Fits?</span></strong></h6><span class="ln-hot-date">Oct 05, 2026</span></div></div><div class="ln-hot-news-item"><img class="ln-hot-img" src="assets/img/article/article-10.webp?h=e5e45c11b776ae1ccc23c8d2cbe795be" alt="Hot 3"><div><h6 class="ln-hot-title">C<a href="https://lnconnection.substack.com/p/use-the-overstay-calculator-to-avoid?r=91g9og" target="_blank" rel="noopener">an a Foreign Founder Own This Business Activity in Bali?</a></h6><span class="ln-hot-date">Jul 15, 2026</span></div></div></div></div><div class="ln-widget-box"><h5 class="ln-widget-title">Contact Us</h5><ul class="list-unstyled mb-0 ln-contact-list"><li><strong>WhatsApp : </strong><a href="https://wa.me/6285121502858" target="_blank">(+62) 851-2150-2858</a></li><li><strong>Instagram : </strong><a href="https://instagram.com/lnconsultant.id" target="_blank">@ln</a>.<span style="color:rgb(11, 43, 34);">consultant</span></li><li><strong>Email : </strong><a href="mailto:info@lnconsultant.com">info@lnconsultant.com</a></li></ul></div></aside></div></div><div class="row mt-4 g-3 g-md-4"><div class="col-6 col-md-6 col-lg-4 ln-article-item"><article class="ln-blog-card-page"><a class="ln-card-img-wrap" href="https://lnconnection.substack.com/p/new-bali-business-regulations-what?r=91g9og" target="_blank" rel="noopener"><img src="assets/img/article/article-4.webp?h=bb18388a6415f92aad758be77ba5ce20" alt="KBLI Code Guide" loading="lazy"></a><div class="ln-card-meta"><span class="ln-author">LN Consultant Team</span></div><h3 class="ln-card-title"><a href="https://lnconnection.substack.com/p/new-bali-business-regulations-what?r=91g9og" target="_blank" rel="noopener">New Bali Business Regulations: What Foreign Investors Need to Know Before Setting Up a PT PMA</a><span class="ln-arrow">↗</span></h3><p class="ln-card-excerpt">Understanding the sectors and activities foreign investors need to evaluate before investing in Indonesia.</p><div class="ln-card-footer"></div></article></div><div class="col-6 col-md-6 col-lg-4 ln-article-item"><article class="ln-blog-card-page"><a class="ln-card-img-wrap" href="https://lnconnection.substack.com/p/can-you-still-open-any-business-you?r=91g9og" target="_blank" rel="noopener"><img alt="LKPM Reporting" loading="lazy" src="assets/img/article/article-8.png?h=c95376ce80e72665bf0df1314c3e6e62"></a><div class="ln-card-meta"><span class="ln-author">LN Consultant Team</span></div><h3 class="mb-2 ln-card-title"><a href="https://lnconnection.substack.com/p/can-you-still-open-any-business-you?r=91g9og" target="_blank" rel="noopener">Can You Still Open Any Business You Want in Bali?</a><span class="ln-arrow">↗</span></h3><p class="mb-0 pb-0 ln-card-excerpt">Understanding the latest KBLI restrictions and risk-based licensing rules for foreign investors in Bali.</p><div class="ln-card-footer"></div></article></div><div class="col-6 col-md-6 col-lg-4 ln-article-item"><article class="ln-blog-card-page"><a class="ln-card-img-wrap" href="https://lnconnection.substack.com/p/canggu-ubud-or-seminyak-where-does?r=91g9og" target="_blank" rel="noopener"><img src="assets/img/article/article-9.webp?h=06869cfbd6170b96fb3ce768e4435a4c" alt="Tax Compliance" loading="lazy"></a><div class="ln-card-meta"><span class="ln-author">LN Consultant Team</span></div><h3 class="ln-card-title"><a href="https://lnconnection.substack.com/p/canggu-ubud-or-seminyak-where-does?r=91g9og" target="_blank" rel="noopener">Canggu, Ubud or Seminyak: Where Does Your Business Actually Fit?</a><span class="ln-arrow">↗</span></h3><p class="ln-card-excerpt">Why location, business activity, and local zoning requirements must be evaluated together before opening a business in Bali.</p><div class="ln-card-footer"></div></article></div><div class="col-6 col-md-6 col-lg-4 ln-article-item"><article class="ln-blog-card-page"><a class="ln-card-img-wrap" href="https://lnconnection.substack.com/p/balis-tourism-boom-vs-local-business?r=91g9og" target="_blank" rel="noopener"><img src="assets/img/background/bali.webp?h=ea72e93dda5e406ce6f5ba395014133c" alt="Tax Compliance" loading="lazy"></a><div class="ln-card-meta"><span class="ln-author">LN Consultant Team</span></div><h3 class="ln-card-title"><a href="https://lnconnection.substack.com/p/balis-tourism-boom-vs-local-business?r=91g9og" target="_blank" rel="noopener">Bali’s Tourism Boom vs Local Business Protection</a><span class="ln-arrow">↗</span></h3><p class="ln-card-excerpt">Bali’s tourism economy continues to expand at a remarkable pace. In 2025, the island</p><div class="ln-card-footer"></div></article></div><div class="col-6 col-md-6 col-lg-4 ln-article-item"><article class="ln-blog-card-page"><a class="ln-card-img-wrap" href="https://lnconnection.substack.com/p/opening-a-cafe-in-bali-in-2026-check?r=91g9og&amp;utm_campaign=post&amp;utm_medium=web&amp;showWelcomeOnShare=true" target="_blank" rel="noopener"><img src="assets/img/article/article-11.webp?h=c2e9054a0f40ad32452edc252bd1ebed" alt="Tax Compliance" loading="lazy"></a><div class="ln-card-meta"><span class="ln-author">LN Consultant Team</span></div><h3 class="ln-card-title"><a href="https://lnconnection.substack.com/p/opening-a-cafe-in-bali-in-2026-check?r=91g9og&utm_campaign=post&utm_medium=web&showWelcomeOnShare=true" target="_blank" rel="noopener">Opening a Café in Bali in 2026? Check This Before You Invest.</a><span class="ln-arrow">↗</span></h3><p class="ln-card-excerpt">Opening a café in Bali may look straightforward: find a busy area, secure a property, develop the concept, and start the licensing process</p><div class="ln-card-footer"></div></article></div><div class="col-6 col-md-6 col-lg-4 ln-article-item"><article class="ln-blog-card-page"><a class="ln-card-img-wrap" href="https://lnconnection.substack.com/p/property-consultancy-in-batam-which" target="_blank" rel="noopener"><img src="assets/img/background/images%20(2).jpg?h=80bd1080a64497003931470290000bcc" alt="Tax Compliance" loading="lazy"></a><div class="ln-card-meta"><span class="ln-author">LN Consultant Team</span></div><h3 class="ln-card-title"><span style="color:rgb(54, 55, 55);">Property Consultancy in Batam: Which Business Classification Fits?</span><span class="ln-arrow">↗</span></h3><p class="ln-card-excerpt"><span style="color:rgb(54, 55, 55);">Choosing a business classification for a property consultancy is not about finding a code that contains the word “consulting.”</span></p><div class="ln-card-footer"></div></article></div><div class="col-6 col-md-6 col-lg-4 ln-article-item"><article class="ln-blog-card-page"><a class="ln-card-img-wrap" href="https://lnconnection.substack.com/p/can-a-foreign-founder-own-this-business" target="_blank" rel="noopener"><img src="assets/img/article/article-10.webp?h=e5e45c11b776ae1ccc23c8d2cbe795be" alt="Tax Compliance" loading="lazy"></a><div class="ln-card-meta"><span class="ln-author">LN Consultant Team</span></div><h3 class="ln-card-title"><a href="https://lnconnection.substack.com/p/property-consultancy-in-batam-which" target="_blank" rel="noopener">Can a Foreign Founder Own This Business Activity in Bali?</a><span class="ln-arrow">↗</span></h3><p class="ln-card-excerpt">KBLI is Indonesia’s standard system for classifying business activities. The code is not just a label. It helps determine whether foreign investment is allowed</p><div class="ln-card-footer"></div></article></div><div class="col-6 col-md-6 col-lg-4 ln-article-item"><article class="ln-blog-card-page"><a class="ln-card-img-wrap" href="https://lnconnection.substack.com/p/what-city-in-bali-suits-your-business" target="_blank" rel="noopener"><img src="assets/img/article/article-1.webp?h=76f6b6447c58743597951faafb512815" alt="Tax Compliance" loading="lazy"></a><div class="ln-card-meta"><span class="ln-author">LN Consultant Team</span></div><h3 class="ln-card-title"><span style="color:rgb(54, 55, 55);">What city in Bali suits your business best, Canggu, Ubud or Seminyak?</span><span class="ln-arrow">↗</span></h3><p class="ln-card-excerpt">Choosing where to open a business in Bali should involve more than finding the area with the highest tourist traffic or the most attractive property. </p><div class="ln-card-footer"></div></article></div><div class="col-6 col-md-6 col-lg-4 ln-article-item"><article class="ln-blog-card-page"><a class="ln-card-img-wrap" href="https://lnconnection.substack.com/p/what-kind-of-businesses-cani-open" target="_blank" rel="noopener"><img src="assets/img/article/meeting%20with%20team.png?h=07174c4c73056a73f1e7f6fd98f78d44" alt="Tax Compliance" loading="lazy"></a><div class="ln-card-meta"><span class="ln-author">LN Consultant Team</span></div><h3 class="ln-card-title"><span style="color:rgb(54, 55, 55);">What Kind of Businesses Can I Open in Bali?</span><span class="ln-arrow">↗</span></h3><p class="ln-card-excerpt">Studying and understanding the different sectors and activities before investing as a foreign investor is important.</p><div class="ln-card-footer"></div></article></div></div></div></section></div><a href="#top"><div id="scroll-to-top"><i class="fa fa-chevron-up"></i></div></a><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/4.0.0/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.js"></script><script src="assets/js/script.min.js?h=f5b4005bd84aedcc410c77c10d3a3e2f"></script>
+
+<footer class="py-5 main-footer"><div class="container"><div class="row gy-4 mb-5"><div class="col-md-6 col-lg-4"><img src="assets/img/logo/Logo_LN.png?h=c21d184e7df90df00f4a2fe60accebf3" width="69" height="62"><p class="mt-2 mb-4 footer-desc">End-to-end Corporate &amp; Legal Services Provider for Foreign and Local Businesses in Indonesia.</p><div class="d-flex flex-column gap-2 mb-4 footer-contact-info"><p class="m-0"><svg class="bi bi-geo-alt-fill me-0 black-icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16"><path d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10m0-7a3 3 0 1 1 0-6 3 3 0 0 1 0 6"></path></svg>&nbsp;Branch Office Jl. Raja H. Fisabilillah, Taman Baloi, Batam Kota District, Batam City, Riau Islands 29444, Indonesia</p><p class="m-0"><svg class="bi bi-geo-alt-fill me-0 black-icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16"><path d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10m0-7a3 3 0 1 1 0-6 3 3 0 0 1 0 6"></path></svg>&nbsp;Branch Office Jl. Letjen M.T. Haryono Kav. Tebet, South Jakarta City</p><p class="m-0"><svg class="bi bi-geo-alt-fill me-0 mt-0 black-icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16"><path d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10m0-7a3 3 0 1 1 0-6 3 3 0 0 1 0 6"></path></svg>&nbsp;Head Office Jl. Cidangiang Tegallega Kec. Bogor Tengah, Kota Bogor. Jawa Barat</p><p class="m-0"><i class="fas fa-phone me-2 black-icon"></i> +62 851-2150-2858</p><p class="m-0"><i class="fas fa-envelope me-2 black-icon"></i>&nbsp;info@lnconsultant.com</p></div><ul class="d-flex justify-content-start list-inline text-center"><li class="list-inline-item"><a href="https://www.facebook.com/profile.php?id=61592559064061" target="_blank" rel="noopener"><span class="fa-stack fa-lg" style="color: var(--bs-gray-900);"><i class="fas fa-circle fa-stack-2x"></i><i class="fa fa-facebook fa-stack-1x fa-inverse"></i></span></a></li><li class="list-inline-item"><a href="https://www.instagram.com/ln.consultant/" target="_blank" rel="noopener"><span class="fa-stack fa-lg" style="color: var(--bs-gray-900);"><i class="fas fa-circle fa-stack-2x"></i><i class="fa fa-instagram fa-stack-1x fa-inverse"></i></span></a></li><li class="list-inline-item"><a href="https://www.linkedin.com/company/langitnagasejahtera/" target="_blank" rel="noopener"><span class="fa-stack fa-lg" style="color: var(--bs-gray-900);"><i class="fas fa-circle fa-stack-2x"></i><i class="fa fa-linkedin-square fa-stack-1x fa-inverse"></i></span></a></li></ul></div><div class="col-md-6 col-lg-3 ms-lg-auto"><h5 class="mb-3 footer-heading"><span style="color: rgb(255, 255, 255);">Solutions</span></h5><ul class="list-unstyled d-flex flex-column gap-2 footer-links"><li><a href="solutions.html">Ingtama Travel &amp; Hotel</a></li><li><a href="solutions.html">Social Media Management</a></li><li><a href="solutions.html">Business Setup &amp; Advisory</a></li><li><a href="solutions.html">Tax Setup Compliance</a></li></ul></div><div class="col-md-6 col-lg-2"><h5 class="mb-3 footer-heading"><span style="color: rgb(255, 255, 255);">Resources</span></h5><ul class="list-unstyled d-flex flex-column gap-2 footer-links"><li><a href="blog.html">Blog &amp; Articles</a></li><li><a href="tools.html">Immigration Calculator</a></li><li><a href="services/business-advisory.html#faq-page">Frequently Asked Questions</a></li><li><a href="about.html">Case Study &amp; Trust</a></li></ul></div><div class="col-md-6 col-lg-2"><h5 class="mb-3 footer-heading"><span style="color: rgb(255, 255, 255);">Company</span></h5><ul class="list-unstyled d-flex flex-column gap-2 footer-links"><li><a href="about.html">About Us</a></li><li><a href="https://wa.me/6285121502858?text=Hi%2C%20I%27d%20like%20to%20get%20in%20touch%20with%20LN%20Consultant." target="_blank" rel="noopener">Contact Us</a></li><li><a href="https://wa.me/6285121502858?text=Hi%2C%20I%27d%20like%20to%20request%20your%20Privacy%20Policy." target="_blank" rel="noopener">Privacy Policy</a></li><li><a href="https://wa.me/6285121502858?text=Hi%2C%20I%27d%20like%20to%20request%20your%20Terms%20of%20Service." target="_blank" rel="noopener">Terms of Service</a></li></ul></div></div><div class="text-center d-flex flex-column justify-content-center align-items-center gap-1 pt-4 footer-bottom border-top"><p class="m-0 copyright-text"><span style="color: rgb(255, 255, 255);">© Copyright 2026&nbsp;― PT. Langit Naga Sejahtera</span></p></div></div></footer>
+
+<div><a id="wa-float-btn" href="https://wa.me/6285121502858?text=Hi%2C%20I%27d%20like%20to%20chat%20with%20LN%20Consultant." target="_blank" rel="noopener" aria-label="Chat on WhatsApp" class="wa-float-pill"><span class="wa-pill-text">Chat via WhatsApp</span><span class="wa-pill-icon"><svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 24 24" width="24" height="24" fill="#25D366"><path d="M12 2C6.48 2 2 6.48 2 12c0 1.85.5 3.58 1.36 5.07L2 22l5.07-1.33A9.94 9.94 0 0 0 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2zm5.2 14.2c-.22.62-1.28 1.2-1.76 1.27-.45.07-1.02.1-1.64-.1-.38-.12-.86-.28-1.48-.55-2.6-1.12-4.3-3.73-4.43-3.9-.13-.17-1.06-1.4-1.06-2.67 0-1.27.66-1.9.9-2.15.22-.24.5-.3.66-.3h.48c.16 0 .37-.02.57.44.22.5.75 1.82.82 1.95.07.13.11.29.02.46-.32.66-.66.9-.92 1.2-.13.15-.27.28-.11.55.6 1.05 1.24 1.68 2.14 2.28.9.6 1.35.75 1.55.83.2.08.32.06.44-.07.13-.13.53-.62.68-.83.15-.22.3-.18.5-.11.2.08 1.29.6 1.51.72.22.11.37.17.42.26.06.1.06.55-.16 1.17z"></path></svg></span></a><div id="wa-reply-chip" class="wa-reply-chip"></div></div>
+
+<div id="lang-switcher">
+  <button id="lang-toggle-btn" aria-label="Change Language">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"></circle>
+      <line x1="2" y1="12" x2="22" y2="12"></line>
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10z"></path>
+    </svg>
+    <span>Language</span>
+  </button>
+  <div id="lang-panel" class="notranslate">
+    <div id="google_translate_element"></div>
+    <ul>
+      <li><a href="#" data-lang="en" class="active"><span class="lf">&#x1F1EC;&#x1F1E7;</span> English</a></li>
+      <li><a href="#" data-lang="id"><span class="lf">&#x1F1EE;&#x1F1E9;</span> Bahasa Indonesia</a></li>
+      <li><a href="#" data-lang="zh-CN"><span class="lf">&#x1F1E8;&#x1F1F3;</span> Simplified Chinese</a></li>
+      <li><a href="#" data-lang="it"><span class="lf">&#x1F1EE;&#x1F1F9;</span> Italian</a></li>
+      <li><a href="#" data-lang="ar"><span class="lf">&#x1F1F8;&#x1F1E6;</span> Arabic</a></li>
+      <li><a href="#" data-lang="ur"><span class="lf">&#x1F1F5;&#x1F1F0;</span> Urdu</a></li>
+      <li><a href="#" data-lang="de"><span class="lf">&#x1F1E9;&#x1F1EA;</span> German</a></li>
+      <li><a href="#" data-lang="fr"><span class="lf">&#x1F1EB;&#x1F1F7;</span> French</a></li>
+    </ul>
+  </div>
+</div>
+
+<script type="text/javascript">
+  function googleTranslateElementInit() {
+    new google.translate.TranslateElement({
+      pageLanguage: 'en',
+      includedLanguages: 'en,id,zh-CN,it,ar,ur,de,fr',
+      layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
+      autoDisplay: false
+    }, 'google_translate_element');
+  }
+</script>
+<script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+
+<script>
+  (function(){
+    var KEY = 'ln_lang';
+    function getSaved(){ try{ return localStorage.getItem(KEY)||'en'; }catch(e){ return 'en'; } }
+    function save(c){ try{ localStorage.setItem(KEY,c); }catch(e){} }
+    function applyLang(code, reload){
+      var val = (code === 'en') ? '' : ('/en/' + code);
+      var exp = (code === 'en') ? '; expires=Thu, 01 Jan 1970 00:00:00 UTC' : '';
+      [window.location.hostname, '.' + window.location.hostname, ''].forEach(function(d){
+        var base = 'googtrans=' + val + exp + '; path=/';
+        document.cookie = d ? base + '; domain=' + d : base;
+      });
+      if(reload) window.location.reload();
+    }
+    document.addEventListener('DOMContentLoaded', function(){
+      var btn = document.getElementById('lang-toggle-btn');
+      var panel = document.getElementById('lang-panel');
+      var saved = getSaved();
+      document.querySelectorAll('#lang-panel a[data-lang]').forEach(function(a){
+        a.classList.toggle('active', a.getAttribute('data-lang') === saved);
+      });
+      if(saved !== 'en') applyLang(saved);
+      btn.addEventListener('click', function(e){ e.stopPropagation(); panel.classList.toggle('open'); });
+      document.addEventListener('click', function(){ panel.classList.remove('open'); });
+      document.querySelectorAll('#lang-panel a[data-lang]').forEach(function(a){
+        a.addEventListener('click', function(e){
+          e.preventDefault();
+          var code = this.getAttribute('data-lang');
+          save(code);
+          document.querySelectorAll('#lang-panel a[data-lang]').forEach(function(x){ x.classList.remove('active'); });
+          this.classList.add('active');
+          applyLang(code, true);
+          panel.classList.remove('open');
+        });
+      });
+    });
+    setInterval(function(){ if(document.body){ document.body.style.top='0px'; document.body.style.marginTop='0px'; } },100);
+  })();
+</script></body></html>

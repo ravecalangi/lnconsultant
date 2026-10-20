@@ -1,0 +1,304 @@
+<!DOCTYPE html><html data-bs-theme="light" lang="en"><head><meta charset="utf-8">
+<!-- ================================================================
+   LN Consultant — Full Integration Script (FINAL)
+   ================================================================ -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+  /* ========================= CONFIG ========================= */
+  var WA_NUMBER = "6285121502858";
+  var SB_URL    = "https://pjrahsdhmannqwwxytnc.supabase.co";
+  var SB_KEY    = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBqcmFoc2RobWFubnF3d3h5dG5jIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0OTQzNDYsImV4cCI6MjA5OTA3MDM0Nn0.nxltXRlqmuU1opIoglm_Q9hR6dIYJPPSIoxZ_mIoseI";
+  /* ============================================================ */
+
+  var lnSb = null;
+  try { lnSb = supabase.createClient(SB_URL, SB_KEY); } catch (e) {}
+
+  function lnWa(prefill) {
+    return "https://wa.me/" + WA_NUMBER + "?text=" + encodeURIComponent(prefill);
+  }
+
+  function lnSessionId() {
+    var k = "ln_sid";
+    var v = localStorage.getItem(k);
+    if (!v) { v = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random(); localStorage.setItem(k, v); }
+    return v;
+  }
+
+  var params = new URLSearchParams(location.search);
+  var LN_SOURCE = {
+    utm: params.get("utm_source") || null,
+    campaign: params.get("utm_campaign") || null,
+    referrer: document.referrer ? (function () { try { return new URL(document.referrer).hostname; } catch (e) { return "unknown"; } })() : "direct"
+  };
+
+  function lnLogVisit(serviceClicked) {
+    if (!lnSb) return;
+    fetch("https://ipapi.co/json/").then(function (r) { return r.json(); }).then(function (geo) {
+      lnSb.from("ln_visits").insert({
+        ip: geo.ip || null, city: geo.city || null, country: geo.country_name || null,
+        service_clicked: serviceClicked, user_agent: navigator.userAgent, referrer: document.referrer,
+        marketing: LN_SOURCE, session_id: lnSessionId()
+      }).then(function () {}).catch(function () {});
+    }).catch(function () {});
+  }
+
+  function lnLead(source, extra) {
+    if (!lnSb) return;
+    try {
+      lnSb.from("ln_leads").insert(Object.assign({
+        source: source, marketing: LN_SOURCE,
+        next_followup_at: new Date(Date.now() + 24 * 3600e3).toISOString()
+      }, extra || {})).then(function () {}).catch(function () {});
+    } catch (e) {}
+  }
+
+  /* ===================== 1. FORM KONSULTASI ===================== */
+  var form = document.getElementById("consultForm");
+  if (form) {
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+
+      var nameEl = document.getElementById("fullName");
+      var waEl = document.getElementById("waNumber");
+      var serviceEl = document.getElementById("serviceSelect");
+      var notesEl = document.getElementById("extraNotes");
+      var companyEl = form.querySelector('input[name="companyType"]:checked');
+
+      var name = nameEl ? nameEl.value.trim() : "";
+      var waOrEmail = waEl ? waEl.value.trim() : "";
+      var service = serviceEl ? serviceEl.value : "";
+      var notes = notesEl ? notesEl.value.trim() : "";
+      var companyType = companyEl ? companyEl.value : "";
+
+      if (!name || !waOrEmail) {
+        alert("Please fill in your name and WhatsApp number / email.");
+        return;
+      }
+
+      lnLead("website_form", {
+        name: name,
+        whatsapp: waOrEmail,
+        service: service || companyType,
+        quiz_answers: { companyType: companyType, service: service },
+        notes: notes || null
+      });
+
+      var lines = [
+        "Hi, my name is " + name + ".",
+        "Company type: " + companyType
+      ];
+      if (service) lines.push("Service needed: " + service);
+      if (notes) lines.push("Notes: " + notes);
+      lines.push("My WhatsApp/email: " + waOrEmail);
+
+      window.open(lnWa(lines.join("\n")), "_blank");
+
+      form.reset();
+      var checkedRadio = form.querySelector('input[name="companyType"][value="PT PMA (Foreign-owned)"]');
+      if (checkedRadio) checkedRadio.checked = true;
+    });
+  }
+
+  /* ===================== 2. FLOATING WA BUTTON ===================== */
+  var waFloat = document.getElementById("wa-float-btn");
+  if (waFloat) {
+    waFloat.addEventListener("click", function () {
+      lnLogVisit("wa_float_button");
+    });
+  }
+
+  /* ===================== 3. SERVICE CARDS ===================== */
+  document.querySelectorAll(".service-card").forEach(function (card) {
+    var link = card.querySelector(".service-link"), tag = card.querySelector(".service-tag");
+    if (!link || !tag) return;
+    link.addEventListener("click", function (e) {
+      e.preventDefault();
+      var svc = tag.textContent.trim();
+      lnLogVisit(svc);
+      lnLead("service_card", { service: svc });
+      window.open(lnWa("Hi, I'd like a quote for: " + svc), "_blank");
+    });
+  });
+
+});
+</script><meta name="viewport" content="width=device-width, initial-scale=1.0, shrink-to-fit=no"><title>Integrated Business Solutions | LN Consultant</title><link rel="canonical" href="https://www.lnconsultant.com/solutions.html"><meta property="og:url" content="https://www.lnconsultant.com/solutions.html"><meta name="twitter:title" content="Integrated Business Solutions | LN Consultant"><meta property="og:description" content="LN Consultant delivers an integrated ecosystem of business advisory, digital solutions, tax compliance, and corporate travel management under one roof."><meta property="og:type" content="website"><meta name="twitter:card" content="summary"><meta name="twitter:image" content="https://www.lnconsultant.com/assets/img/logo/logo_ln_new.png"><meta name="twitter:description" content="LN Consultant delivers an integrated ecosystem of business advisory, digital solutions, tax compliance, and corporate travel management under one roof."><meta property="og:title" content="LN Consultant — Integrated Business Solutions"><meta name="description" content="Explore LN Consultant's integrated business solutions — from corporate setup and tax compliance to digital branding and travel management, all under one ecosystem."><meta property="og:image" content="https://www.lnconsultant.com/assets/img/logo/logo_ln_new.png"><link rel="apple-touch-icon" type="image/webp" sizes="180x180" href="assets/img/favicon/apple-touch-icon.webp?h=5e94fb299b173d64678295d36a4b7578"><link rel="icon" type="image/webp" sizes="16x16" href="assets/img/favicon/favicon-16x16.webp?h=5bcf5acfaff79889cce0359fa3314b28"><link rel="icon" type="image/webp" sizes="16x16" href="assets/img/favicon/favicon-16x16.webp?h=5bcf5acfaff79889cce0359fa3314b28" media="(prefers-color-scheme: dark)"><link rel="icon" type="image/webp" sizes="32x32" href="assets/img/favicon/favicon-32x32.webp?h=d938b3d5c1d9b4443ba4ca83117efbe2"><link rel="icon" type="image/webp" sizes="32x32" href="assets/img/favicon/favicon-32x32.webp?h=d938b3d5c1d9b4443ba4ca83117efbe2" media="(prefers-color-scheme: dark)"><link rel="icon" type="image/webp" sizes="180x180" href="assets/img/favicon/apple-touch-icon.webp?h=5e94fb299b173d64678295d36a4b7578"><link rel="icon" type="image/png" sizes="1254x1254" href="assets/img/logo/logo_ln_new.png?h=e0136c0f69d6218d4b527ef94a15b594"><link rel="icon" type="image/png" sizes="1254x1254" href="assets/img/logo/logo_ln_new.png?h=e0136c0f69d6218d4b527ef94a15b594"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css"><link rel="manifest" href="manifest.json?h=b8d18d45cb0c7d424298214b529c8dd2" crossorigin="use-credentials"><link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.12.0/css/all.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/simple-line-icons/2.5.5/css/simple-line-icons.min.css"><link rel="stylesheet" href="assets/fonts/fontawesome5-overrides.min.css?h=33fe6d8f3148d10c2ff7ce3ff095dd41"><link rel="stylesheet" href="assets/css/styles.min.css?h=56823cdd74a780f6919043941b76592c"><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.css"><!-- 1. SEO MULTI-LANGUAGE MAPPING (Google Bot) -->
+<link rel="alternate" hreflang="x-default" href="https://lnconsultant.com/" />
+<link rel="alternate" hreflang="en" href="https://lnconsultant.com/" />
+<link rel="alternate" hreflang="id" href="https://lnconsultant.com/?lang=id" />
+<link rel="alternate" hreflang="ru" href="https://lnconsultant.com/?lang=ru" />
+<link rel="alternate" hreflang="zh" href="https://lnconsultant.com/?lang=zh" />
+
+<!-- 2. PRIMARY META TAGS -->
+<title>LN Consultant — Integrated Business Solutions</title>
+<meta name="title" content="LN Consultant — Integrated Business Solutions" />
+<meta name="description" content="An integrated ecosystem of business advisory, digital solutions, tax compliance, and corporate travel management — all under one roof." />
+<meta name="facebook-domain-verification" content="q6ru5m9y7xsyfz6ebryj9bza7l7psy" />
+
+<!-- 3. OPEN GRAPH / WHATSAPP / SOCIAL MEDIA PREVIEW -->
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://lnconsultant.com/solutions.html" />
+<meta property="og:title" content="LN Consultant — Integrated Business Solutions" />
+<meta property="og:description" content="An integrated ecosystem of business advisory, digital solutions, tax compliance, and corporate travel management — all under one roof." />
+<meta property="og:image" content="https://i.postimg.cc/vHWc2d9h/Logo-LN.png" />
+<meta property="og:image:secure_url" content="https://i.postimg.cc/vHWc2d9h/Logo-LN.png" />
+<meta property="og:image:type" content="image/png" />
+<meta property="og:image:width" content="500" />
+<meta property="og:image:height" content="500" />
+
+<!-- 4. TWITTER CARDS PREVIEW -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:url" content="https://lnconsultant.com/solutions.html" />
+<meta name="twitter:title" content="LN Consultant — Integrated Business Solutions" />
+<meta name="twitter:description" content="An integrated ecosystem of business advisory, digital solutions, tax compliance, and corporate travel management — all under one roof." />
+<meta name="twitter:image" content="https://i.postimg.cc/vHWc2d9h/Logo-LN.png" />
+</head><body><div class="sat-nav-pro-scope"><nav class="navbar navbar-expand-lg fixed-top sat-pro-navbar" id="proNavbar"><div class="container-fluid"><a class="navbar-brand d-flex align-items-center gap-3 sat-pro-brand" href="index.html"><div class="sat-brand-logo-area"><span class="sat-pro-main"><span class="sat-pro-accent"><img class="rounded" src="assets/img/logo/Logo%20Company.jpeg?h=d477fc80855a456fbe6002bf3e371d6d" width="52" height="48"></span></span></div><div class="d-none d-lg-block sat-pro-divider"></div><div class="d-none d-lg-block sat-pro-desc"><span class="text-uppercase d-block sat-pro-sub-2" style="font-family: 'Abyssinica SIL', serif;"><span style="color: rgb(78, 78, 78);">PT. Langit Naga Sejahtera</span></span><span class="d-block sat-pro-sub-1" style="font-size: 11px;"><span style="color: rgb(78, 78, 78);">Business Advisory</span></span></div></a><button class="navbar-toggler text-white border-0 shadow-none sat-pro-toggler" data-bs-toggle="collapse" data-bs-target="#proNavbarContent" type="button" aria-controls="proNavbarContent" aria-expanded="false" aria-label="Toggle navigation"><svg class="bi bi-list fs-2" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16">
+  <path fill-rule="evenodd" d="M2.5 12a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5m0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5m0-4a.5.5 0 0 1 .5-.5h10a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5"></path>
+</svg></button><div class="collapse navbar-collapse justify-content-end" id="proNavbarContent"><ul class="navbar-nav ms-auto mb-3 mb-lg-0 sat-pro-nav-list"><li class="nav-item"><a class="nav-link sat-pro-link" href="index.html"><span style="color: rgb(78, 78, 78);">Home</span></a></li><li class="nav-item"><a class="nav-link sat-pro-link" href="about.html"><span style="color: rgb(78, 78, 78);">About</span></a></li><li class="nav-item"><a class="nav-link sat-pro-link" href="services.html"><span style="color: rgb(78, 78, 78);">Services</span></a></li><li class="nav-item"><a class="nav-link active sat-pro-link" href="solutions.html"><span style="color: rgb(78, 78, 78);">Solutions</span></a></li><li class="nav-item"><a class="nav-link sat-pro-link" href="tools.html"><span style="color: rgb(78, 78, 78);">Tools</span></a></li><li class="nav-item"><a class="nav-link sat-pro-link" href="blog.html"><span style="color: rgb(78, 78, 78);">Blog &amp; Article</span></a></li></ul><div class="d-flex align-items-center gap-3 sat-pro-right"><a class="btn sat-pro-contact-btn" role="button" href="https://wa.me/6281234567890" target="_blank">Contact Us</a></div></div></div></nav></div>
+
+<!-- ===== HERO SECTION ===== -->
+<section class="pt-10 pb-8 ln-blog-hero-exact" style="background: linear-gradient(126deg, #ddd9d9, rgba(255,255,255,0)), url(&quot;assets/img/background/office.webp?h=64636b3658c7347f6a00ac7f521646e6&quot;) center / cover;"><div class="container"><div class="row align-items-center"><div class="col-md-12 col-lg-7 col-xl-8 ms-0 ps-4 pe-4 mb-4 mb-lg-0" data-aos="fade-up" data-aos-duration="350" data-aos-delay="450"><span class="ln-hero-label" style="width: 215px;text-align: center;background: #f8c35d;border-radius: 11px;font-size: 12px;"><span style="color: rgb(40, 40, 40);">Integrated Ecosystem</span></span><h1 class="mb-2 ln-hero-main-title" style="font-size: 30px;font-family: Montserrat, sans-serif;"><span style="color: rgb(33, 33, 33);">Our Solutions.</span></h1><p><span style="color: rgb(33, 33, 33);">A fully integrated business ecosystem — from legal advisory and digital branding to travel, events, and financial compliance. Everything your business needs, all under one roof.</span></p></div></div></div></section>
+
+<!-- ===== PROMO BANNER ===== -->
+<section class="sat-promo-banner" style="background: linear-gradient(122deg, rgba(231,158,15,0.07), #e79e0f);"><div class="container-fluid px-4 px-lg-5"><div class="row justify-content-between align-items-center g-3"><div class="col-12 col-md-auto col-xl-6 text-center text-md-start"><p class="mb-0 sat-promo-text" style="font-family: Agdasima, sans-serif;"><span style="color: rgb(35, 35, 35);">Business Advisory ·&nbsp;Digital Solutions ·&nbsp;Tax Compliance ·&nbsp;Corporate Travel Management</span></p></div><div class="col-12 col-md-auto text-center text-md-end"><a class="btn sat-btn-promo" role="button" href="https://wa.me/6285121502858?text=Hi%2C%20I%27d%20like%20a%20custom%20solution%20for%20my%20business." target="_blank" rel="noopener"><em><span style="font-weight: normal !important;">Get a Custom Solution →</span></em></a></div></div></div></section>
+
+<!-- ===== SOLUTIONS GRID ===== -->
+<section class="bg-white py-5 bizsetup-page related-services-section"><div class="container py-lg-4"><div class="mb-5 max-w-650" data-aos="fade-up" data-aos-duration="350" data-aos-delay="450"><span class="d-inline-block mb-2 related-tag">— Our Solutions</span><h2 class="text-dark mb-3 related-title fw-extrabold">Integrated solutions for every stage of your business</h2><p class="fs-6 text-muted related-subtitle">From company formation and legal compliance to digital branding and corporate travel — our ecosystem is designed to support your business at every step of its journey in Indonesia.</p></div><div class="row align-items-stretch g-4">
+
+<div class="col-md-6 col-lg-4" data-aos="zoom-in-right" data-aos-duration="350" data-aos-delay="450"><div class="card rounded-4 border-0 d-flex h-100 flex-column p-4 related-card service-card"><div><span class="service-tag" style="display:none;">Business Advisory</span><h5 class="fs-6 fw-bold text-dark mb-3">Business Advisory &amp; Setup</h5><p class="text-muted mb-0 fs-7">Strategic consulting for company incorporation, PT PMA setup, KBLI code selection, licensing, and ongoing corporate governance tailored to foreign investors in Indonesia.</p></div></div></div>
+
+<div class="col-md-6 col-lg-4" data-aos="zoom-in" data-aos-duration="450" data-aos-delay="550"><div class="card rounded-4 border-0 d-flex h-100 flex-column p-4 related-card service-card"><div><span class="service-tag" style="display:none;">Social Media Management</span><h5 class="fs-6 fw-bold text-dark mb-3">Digital &amp; Social Media</h5><p class="text-muted mb-0 fs-7">Cohesive visual identity, content strategy, community management, and performance-driven digital branding to grow your online presence across platforms.</p></div></div></div>
+
+<div class="col-md-6 col-lg-4" data-aos="zoom-in-left" data-aos-duration="550" data-aos-delay="650"><div class="card rounded-4 border-0 d-flex h-100 flex-column p-4 related-card service-card"><div><span class="service-tag" style="display:none;">Tax & Compliance</span><h5 class="fs-6 fw-bold text-dark mb-3">Tax &amp; Compliance</h5><p class="text-muted mb-0 fs-7">End-to-end tax planning, monthly bookkeeping, LKPM reporting, annual returns, and OSS standard certificate processing managed by experienced fiscal experts.</p></div></div></div>
+
+<div class="col-md-6 col-lg-4" data-aos="zoom-in-right" data-aos-duration="350" data-aos-delay="750"><div class="card rounded-4 border-0 d-flex h-100 flex-column p-4 related-card service-card"><div><span class="service-tag" style="display:none;">Visa & Immigration</span><h5 class="fs-6 fw-bold text-dark mb-3">Visa &amp; Immigration</h5><p class="text-muted mb-0 fs-7">Investor KITAS (E28A), Golden Visa, Spouse Visa (E31A), and overstay mitigation — streamlined permit processing for foreign directors, employees, and families.</p></div></div></div>
+
+<div class="col-md-6 col-lg-4" data-aos="zoom-in" data-aos-duration="450" data-aos-delay="850"><div class="card rounded-4 border-0 d-flex h-100 flex-column p-4 related-card service-card"><div><span class="service-tag" style="display:none;">Ingtama Travel & Hotel</span><h5 class="fs-6 fw-bold text-dark mb-3">Corporate Travel &amp; Hotel</h5><p class="text-muted mb-0 fs-7">Hotel bookings, flight tickets, and corporate travel arrangements through Ingtama Travel — seamless logistics for business trips and team mobilization.</p></div></div></div>
+
+<div class="col-md-6 col-lg-4" data-aos="zoom-in-left" data-aos-duration="550" data-aos-delay="950"><div class="card rounded-4 border-0 d-flex h-100 flex-column p-4 related-card service-card"><div><span class="service-tag" style="display:none;">HR & Payroll</span><h5 class="fs-6 fw-bold text-dark mb-3">HR &amp; Payroll Management</h5><p class="text-muted mb-0 fs-7">Reliable employment management including local payroll processing, BPJS healthcare and employment setup, PPh21 tax withholding, and worker compliance.</p></div></div></div>
+
+</div></div></section>
+
+<!-- ===== SOLUTION PROCESS ===== -->
+<section class="pt-5 setup-process-section"><div class="container"><div class="header-content" data-aos="fade-up" data-aos-duration="350" data-aos-delay="450"><span class="subtitle"><span style="color: rgb(176, 134, 26);">―&nbsp;</span>How our solutions work</span><h1 class="title" style="font-family: Montserrat, sans-serif;">From problem to solution</h1><p class="description">A structured approach to identifying your needs, crafting the right strategy, and delivering measurable results across every pillar of your business.</p></div><div class="timeline-container"><div class="timeline-line"></div><div class="stages-grid"><div data-aos="fade-right" data-aos-duration="200" data-aos-delay="250" class="stage-card"><div class="stage-dot"></div><span class="stage-number">STEP 01</span><h3 class="stage-title">Assessment</h3><p class="stage-desc">We evaluate your business structure, regulatory requirements, and operational gaps to identify the solutions that fit your specific needs.</p></div><div data-aos="fade-right" data-aos-duration="300" data-aos-delay="350" class="stage-card"><div class="stage-dot"></div><span class="stage-number">STEP 02</span><h3 class="stage-title">Strategy Design</h3><p class="stage-desc">We build a tailored solution roadmap combining the right mix of advisory, compliance, digital, and operational services for your goals.</p></div><div data-aos="fade-right" data-aos-duration="400" data-aos-delay="450" class="stage-card"><div class="stage-dot"></div><span class="stage-number">STEP 03</span><h3 class="stage-title">Implementation</h3><p class="stage-desc">Our specialist teams execute the plan — handling legal processing, digital deployment, tax filings, and ongoing compliance in parallel.</p></div><div data-aos="fade-right" data-aos-duration="500" data-aos-delay="550" class="stage-card"><div class="stage-dot"></div><span class="stage-number">STEP 04</span><h3 class="stage-title">Support &amp; Scale</h3><p class="stage-desc">We provide continuous monitoring, reporting, and strategic adjustments to keep your business compliant and ready to scale.</p></div></div></div></div></section>
+
+<!-- ===== IMAGE + TEXT SECTION ===== -->
+<div class="container py-4 py-xl-5"><div class="row gy-4 gy-md-0"><div class="col-md-6"><img class="img-fluid" width="678" height="452" src="assets/img/background/teamwork.jpg?h=3295a78b86bd0de260d75c0338b320fb" style="border-radius: 29px;" data-aos="fade-right" data-aos-duration="450" data-aos-delay="500"></div><div class="col-md-6 d-md-flex align-items-md-center"><div data-aos="fade-left" data-aos-duration="450" data-aos-delay="600"><h2 class="text-uppercase fw-bold"><span style="color: rgb(0, 0, 0);">One Ecosystem, Every Solution</span></h2><p class="my-3">We provide end-to-end strategic services tailored to accelerate your enterprise growth, combining expert advisory, modern digital tools, and seamless corporate travel management. Whether you're setting up a new company, scaling operations, or navigating regulatory complexity — our integrated approach ensures every part of your business moves forward together.</p></div></div></div></div>
+
+<!-- ===== ECOSYSTEM CARDS ===== -->
+<section class="sat-midtown-section"><div class="container px-3"><div class="row mb-3"><div class="col-12"><div class="ln-eco-subtitle-wrap"><span class="ln-eco-line"></span></div><h2 class="sat-midtown-title"><em>List of Ecosystem →</em></h2><p class="me-0 sat-midtown-sub"><span style="font-style: normal !important; color: rgb(108, 117, 125); background-color: rgba(255, 255, 255, 0);">A fully integrated business and lifestyle ecosystem — from legal advisory and digital branding to travel, events, and financial compliance. All under one roof.</span></p></div></div><div class="row g-2 g-md-4"><div class="col-6 col-lg-3"><div class="sat-midtown-card" style="background-image:url('assets/img/kawah-putih.jpg');"><div class="d-flex flex-column justify-content-end p-3 sat-midtown-overlay" data-aos="zoom-in" data-aos-duration="250" data-aos-delay="350" style="background: url(&quot;assets/img/background/Header-section.webp?h=e4f02789d4499dc0010f42ce9e369ebc&quot;) center;"><div class="sat-midtown-content"><h3 class="sat-card-title"><a href="services/business-advisory.html">Business Advisory</a></h3><a href="services/business-advisory.html" class="sat-read-more">Read More <svg class="bi bi-arrow-right me-1" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16">
+  <path fill-rule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8"></path>
+</svg></a></div></div></div></div><div class="col-6 col-lg-3"><div class="sat-midtown-card" style="background-image:url('assets/img/borobudur.jpg');"><div class="d-flex flex-column justify-content-end p-3 sat-midtown-overlay" data-aos="zoom-in" data-aos-duration="450" data-aos-delay="550" style="background: url(&quot;assets/img/background/images%20(2).jpg?h=80bd1080a64497003931470290000bcc&quot;) center / cover;"><div class="sat-midtown-content"><h3 class="sat-card-title"><a href="services.html">Social Media Specialist</a></h3><a href="services.html" class="sat-read-more">Read More <svg class="bi bi-arrow-right me-1" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16">
+  <path fill-rule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8"></path>
+</svg></a></div></div></div></div><div class="col-6 col-lg-3"><div class="sat-midtown-card" style="background-image:url('assets/img/banda-neira.jpg');"><div class="d-flex flex-column justify-content-end p-3 sat-midtown-overlay" data-aos="zoom-in" data-aos-duration="650" data-aos-delay="750" style="background: url(&quot;assets/img/background/bali.webp?h=ea72e93dda5e406ce6f5ba395014133c&quot;) center / cover;"><div class="sat-midtown-content"><h3 class="sat-card-title"><a href="https://ingtamatravel.wuaze.com" target="_blank" rel="noopener">Ingtama Travel &amp; Hotel</a></h3><a href="https://ingtamatravel.wuaze.com" class="sat-read-more" target="_blank" rel="noopener">Read More <svg class="bi bi-arrow-right me-1" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16">
+  <path fill-rule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8"></path>
+</svg></a></div></div></div></div><div class="col-6 col-lg-3"><div class="sat-midtown-card" style="background-image:url('assets/img/gili-trawangan.jpg');"><div class="d-flex flex-column justify-content-end p-3 sat-midtown-overlay" data-aos="zoom-in" data-aos-duration="850" data-aos-delay="950" style="background: url(&quot;assets/img/background/mario-gogh-from-unsplash.webp?h=6e88e5fa84a43b27eb6426118ed5fac3&quot;) center / cover;"><div class="sat-midtown-content"><h3 class="sat-card-title"><a href="services.html">Tax &amp; Compliance</a></h3><a href="services.html" class="sat-read-more">Read More <svg class="bi bi-arrow-right me-1" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16">
+  <path fill-rule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8"></path>
+</svg></a></div></div></div></div></div></div></section>
+
+<!-- ===== CTA SECTION ===== -->
+<section class="text-white position-relative overflow-hidden pt-0 pb-0 bizsetup-page section-final-cta-full" data-bss-parallax-bg="true" style="background: linear-gradient(148deg, rgba(33,33,33,0.86) 0%, rgba(71,60,31,0.768557457212714) 27%, rgba(176,134,26,0.52) 70%), url(&quot;assets/img/meetin.webp?h=64636b3658c7347f6a00ac7f521646e6&quot;) center / cover no-repeat;"><div class="container position-relative z-2 mt-0 pb-0 py-lg-4"><div class="row align-items-center ms-0 me-0 mt-4 pt-0 mb-4 pb-0 g-4" style="transform: scale(0.95);"><div class="col-lg-8" data-aos="fade-right" data-aos-duration="300" data-aos-delay="450"><h2 class="text-white mb-3 cta-full-title fw-extrabold"><strong>Find the Right Solution for Your Business</strong></h2><p class="text-light mb-0 cta-full-subtitle opacity-90">Talk to our team about your goals and challenges. We'll help you map out the right combination of advisory, compliance, and digital services to move your business forward in Indonesia.</p></div><div class="col-lg-4 text-lg-end" data-aos="fade-left" data-aos-duration="650" data-aos-delay="800"><a class="btn btn-schedule-call-white" role="button" href="tools.html" target="_blank"><span>Free Tool Calculator</span><svg class="bi bi-arrow-right fs-6 ms-2" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewbox="0 0 16 16"><path fill-rule="evenodd" d="M1 8a.5.5 0 0 1 .5-.5h11.793l-3.147-3.146a.5.5 0 0 1 .708-.708l4 4a.5.5 0 0 1 0 .708l-4 4a.5.5 0 0 1-.708-.708L13.293 8.5H1.5A.5.5 0 0 1 1 8"></path></svg></a></div></div></div></section>
+
+<!-- ===== FOOTER ===== -->
+<footer class="py-5 main-footer"><div class="container"><div class="row gy-4 mb-5"><div class="col-md-6 col-lg-4"><img src="assets/img/logo/Logo_LN.png?h=c21d184e7df90df00f4a2fe60accebf3" width="69" height="62"><p class="mt-2 mb-4 footer-desc">          End-to-end Corporate &amp; Legal Services Provider for Foreign and Local Businesses in Indonesia.        </p><div class="d-flex flex-column gap-2 mb-4 footer-contact-info"><p class="m-0"><svg class="bi bi-geo-alt-fill me-0 black-icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16">
+  <path d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10m0-7a3 3 0 1 1 0-6 3 3 0 0 1 0 6"></path>
+</svg>&nbsp;Branch Office Jl. Raja H. Fisabilillah, Taman Baloi, Batam Kota District, Batam City, Riau Islands 29444, Indonesia</p><p class="m-0"><svg class="bi bi-geo-alt-fill me-0 black-icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16">
+  <path d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10m0-7a3 3 0 0 1 0-6 3 3 0 0 1 0 6"></path>
+</svg>&nbsp;Branch Office Jl. Letjen M.T. Haryono Kav. Tebet, South Jakarta City</p><p class="m-0"><svg class="bi bi-geo-alt-fill me-0 mt-0 black-icon" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" fill="currentColor" viewBox="0 0 16 16">
+  <path d="M8 16s6-5.686 6-10A6 6 0 0 0 2 6c0 4.314 6 10 6 10m0-7a3 3 0 0 1 0-6 3 3 0 0 1 0 6"></path>
+</svg>&nbsp;Head Office Jl. Cidangiang Tegallega Kec. Bogor Tengah, Kota Bogor. Jawa Barat</p><p class="m-0"><i class="fas fa-phone me-2 black-icon"></i> +62 851-2150-2858</p><p class="m-0"><i class="fas fa-envelope me-2 black-icon"></i>&nbsp;info@lnconsultant.com</p></div><ul class="d-flex justify-content-start list-inline text-center"><li class="list-inline-item"><a href="https://www.facebook.com/profile.php?id=61592559064061" target="_blank" rel="noopener"><span class="fa-stack fa-lg" style="color: var(--bs-gray-900);"><i class="fas fa-circle fa-stack-2x"></i><i class="fa fa-facebook fa-stack-1x fa-inverse"></i></span></a></li><li class="list-inline-item"><a href="https://www.instagram.com/ln.consultant/" target="_blank" rel="noopener"><span class="fa-stack fa-lg" style="color: var(--bs-gray-900);"><i class="fas fa-circle fa-stack-2x"></i><i class="fa fa-instagram fa-stack-1x fa-inverse"></i></span></a></li><li class="list-inline-item"><a href="https://www.linkedin.com/redir/suspicious-page?url=https%3A%2F%2Fwww%elnconsultant%2ecom"><span class="fa-stack fa-lg" style="color: var(--bs-gray-900);"><i class="fas fa-circle fa-stack-2x"></i><i class="fa fa-linkedin-square fa-stack-1x fa-inverse"></i></span></a></li></ul></div><div class="col-md-6 col-lg-3 ms-lg-auto"><h5 class="mb-3 footer-heading"><span style="color: rgb(255, 255, 255);">Solutions</span></h5><ul class="list-unstyled d-flex flex-column gap-2 footer-links"><li><a href="solutions.html">Ingtama Travel &amp; Hotel</a></li><li><a href="solutions.html">Social Media Management</a></li><li><a href="solutions.html">Business Setup &amp; Advisory</a></li><li><a href="solutions.html">Tax Setup Compliance</a></li></ul></div><div class="col-md-6 col-lg-2"><h5 class="mb-3 footer-heading"><span style="color: rgb(255, 255, 255);">Resources</span></h5><ul class="list-unstyled d-flex flex-column gap-2 footer-links"><li><a href="blog.html">Blog &amp; Articles</a></li><li><a href="tools.html">Immigration Calculator</a></li><li><a href="services/business-advisory.html#faq-page">Frequently Asked Questions</a></li><li><a href="about.html">Case Study &amp; Trust</a></li></ul></div><div class="col-md-6 col-lg-2"><h5 class="mb-3 footer-heading"><span style="color: rgb(255, 255, 255);">Company</span></h5><ul class="list-unstyled d-flex flex-column gap-2 footer-links"><li><a href="about.html">About Us</a></li><li><a href="https://wa.me/6285121502858?text=Hi%2C%20I%27d%20like%20to%20get%20in%20touch%20with%20LN%20Consultant." target="_blank" rel="noopener">Contact Us</a></li><li><a href="https://wa.me/6285121502858?text=Hi%2C%20I%27d%20like%20to%20request%20your%20Privacy%20Policy." target="_blank" rel="noopener">Privacy Policy</a></li><li><a href="https://wa.me/6285121502858?text=Hi%2C%20I%27d%20like%20to%20request%20your%20Terms%20of%20Service." target="_blank" rel="noopener">Terms of Service</a></li></ul></div></div><div class="text-center d-flex flex-column justify-content-center align-items-center gap-1 pt-4 footer-bottom border-top"><p class="m-0 copyright-text"><span style="color: rgb(255, 255, 255);">© Copyright 2026&nbsp;― PT. Langit Naga Sejahtera</span></p></div></div></footer>
+
+<!-- ===== WHATSAPP FLOAT ===== -->
+<div><a id="wa-float-btn" href="https://wa.me/6285121502858?text=Hi%2C%20I%27d%20like%20to%20chat%20with%20LN%20Consultant." target="_blank" rel="noopener" aria-label="Chat on WhatsApp" class="wa-float-pill"><span class="wa-pill-text">Chat via WhatsApp</span><span class="wa-pill-icon"><svg xmlns="http://www.w3.org/2000/svg" viewbox="0 0 24 24" width="24" height="24" fill="#25D366"><path d="M12 2C6.48 2 2 6.48 2 12c0 1.85.5 3.58 1.36 5.07L2 22l5.07-1.33A9.94 9.94 0 0 0 12 22c5.52 0 10-4.48 10-10S17.52 2 12 2zm5.2 14.2c-.22.62-1.28 1.2-1.76 1.27-.45.07-1.02.1-1.64-.1-.38-.12-.86-.28-1.48-.55-2.6-1.12-4.3-3.73-4.43-3.9-.13-.17-1.06-1.4-1.06-2.67 0-1.27.66-1.9.9-2.15.22-.24.5-.3.66-.3h.48c.16 0 .37-.02.57.44.22.5.75 1.82.82 1.95.07.13.11.29.02.46-.32.66-.66.9-.92 1.2-.13.15-.27.28-.11.55.6 1.05 1.24 1.68 2.14 2.28.9.6 1.35.75 1.55.83.2.08.32.06.44-.07.13-.13.53-.62.68-.83.15-.22.3-.18.5-.11.2.08 1.29.6 1.51.72.22.11.37.17.42.26.06.1.06.55-.16 1.17z"></path></svg></span></a><div id="wa-reply-chip" class="wa-reply-chip"></div></div>
+
+<!-- ===== LANGUAGE SWITCHER ===== -->
+<div><!-- ===== Language Switcher (Google Translate) ===== -->
+<div id="lang-switcher">
+  <button id="lang-toggle-btn" aria-label="Change Language">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"></circle>
+      <line x1="2" y1="12" x2="22" y2="12"></line>
+      <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10z"></path>
+    </svg>
+    <span>Language</span>
+  </button>
+
+  <div id="lang-panel" class="notranslate">
+    <div id="google_translate_element"></div>
+    <ul>
+      <li><a href="#" data-lang="en" class="active"><span class="lf">&#x1F1EC;&#x1F1E7;</span> English</a></li>
+      <li><a href="#" data-lang="id"><span class="lf">&#x1F1EE;&#x1F1E9;</span> Bahasa Indonesia</a></li>
+      <li><a href="#" data-lang="zh-CN"><span class="lf">&#x1F1E8;&#x1F1F3;</span> Simplified Chinese</a></li>
+      <li><a href="#" data-lang="it"><span class="lf">&#x1F1EE;&#x1F1F9;</span> Italian</a></li>
+      <li><a href="#" data-lang="ar"><span class="lf">&#x1F1F8;&#x1F1F6;</span> Arabic</a></li>
+      <li><a href="#" data-lang="ur"><span class="lf">&#x1F1F5;&#x1F1F0;</span> Urdu</a></li>
+      <li><a href="#" data-lang="de"><span class="lf">&#x1F1E9;&#x1F1EA;</span> German</a></li>
+      <li><a href="#" data-lang="fr"><span class="lf">&#x1F1EB;&#x1F1F7;</span> French</a></li>
+    </ul>
+  </div>
+</div>
+
+<script type="text/javascript">
+  function googleTranslateElementInit() {
+    new google.translate.TranslateElement({
+      pageLanguage: 'en',
+      // Ditambahkan: nl (Belanda), it (Italia), pt (Brasil/Portugis), es (Spanyol)
+      includedLanguages: 'en,id,zh-CN,it,ar,ur,de,fr',
+      layout: google.translate.TranslateElement.InlineLayout.SIMPLE,
+      autoDisplay: false
+    }, 'google_translate_element');
+  }
+</script>
+<script type="text/javascript" src="https://translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+
+<script>
+  (function(){
+    var KEY = 'ln_lang';
+    function getSaved(){ try{ return localStorage.getItem(KEY)||'en'; }catch(e){ return 'en'; } }
+    function save(c){ try{ localStorage.setItem(KEY,c); }catch(e){} }
+
+    function applyLang(code, reload){
+      var val = (code === 'en') ? '' : ('/en/' + code);
+      var exp = (code === 'en') ? '; expires=Thu, 01 Jan 1970 00:00:00 UTC' : '';
+      [window.location.hostname, '.' + window.location.hostname, ''].forEach(function(d){
+        var base = 'googtrans=' + val + exp + '; path=/';
+        document.cookie = d ? base + '; domain=' + d : base;
+      });
+      if(reload) window.location.reload();
+    }
+
+    document.addEventListener('DOMContentLoaded', function(){
+      var btn = document.getElementById('lang-toggle-btn');
+      var panel = document.getElementById('lang-panel');
+      var saved = getSaved();
+
+      // Mark active
+      document.querySelectorAll('#lang-panel a[data-lang]').forEach(function(a){
+        a.classList.toggle('active', a.getAttribute('data-lang') === saved);
+      });
+
+      // Apply cookie on load (no reload — page already loaded correctly via cookie)
+      applyLang(saved, false);
+
+      // Toggle panel
+      btn.addEventListener('click', function(e){ e.stopPropagation(); panel.classList.toggle('open'); });
+      document.addEventListener('click', function(){ panel.classList.remove('open'); });
+
+      // Language selection
+      document.querySelectorAll('#lang-panel a[data-lang]').forEach(function(a){
+        a.addEventListener('click', function(e){
+          e.preventDefault();
+          var code = this.getAttribute('data-lang');
+          save(code);
+          document.querySelectorAll('#lang-panel a[data-lang]').forEach(function(x){ x.classList.remove('active'); });
+          this.classList.add('active');
+          applyLang(code, true);
+          panel.classList.remove('open');
+        });
+      });
+    });
+
+    setInterval(function(){ if(document.body){ document.body.style.top='0px'; document.body.style.marginTop='0px'; } },100);
+  })();
+</script></div><script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/4.0.0/jquery.min.js"></script><script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"></script><script src="https://cdnjs.cloudflare.com/ajax/libs/aos/2.3.4/aos.js"></script><script src="assets/js/script.min.js?h=f5b4005bd84aedcc410c77c10d3a3e2f"></script></body></html>
